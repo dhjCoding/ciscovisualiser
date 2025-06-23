@@ -22,17 +22,6 @@ Live Editing: Modify device properties like hostname and IP address directly fro
 
 Responsive Design: The interface is built with Tailwind CSS to be usable across different screen sizes.
 
-🚀 How to Use
-Clone the repository:
-
-git clone https://github.com/your-username/cisco-topology-visualizer.git
-
-Navigate to the directory:
-
-cd cisco-topology-visualizer
-
-Open the application:
-
 Simply open the index.html file in any modern web browser (like Chrome, Firefox, or Edge). No web server is required for the basic functionality.
 
 🛠️ Technologies Used
