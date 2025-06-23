@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cisco Network Topology Visualizer</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- D3.js for data visualization and graph handling -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom styles for the application */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background for a tech feel */
+            color: #e2e8f0;
+        }
+        .toolbar-item {
+            cursor: grab;
+            transition: transform 0.2s;
+        }
+        .toolbar-item:hover {
+            transform: scale(1.1);
+        }
+        #topology-canvas {
+            border: 2px dashed #4a5568;
+            border-radius: 0.5rem;
+            width: 100%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+            background-color: #2d3748;
+        }
+        .node {
+            cursor: pointer;
+            text-align: center;
+        }
+        .node:hover .fa-circle {
+            color: #63b3ed !important; /* Blue glow on hover */
+        }
+        .link {
+            stroke: #a0aec0;
+            stroke-width: 2px;
+        }
+        .link.active {
+            stroke: #68d391; /* Green for active link */
+        }
+        #info-panel, #toolbar {
+            background-color: #2d3748;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .context-menu {
+            display: none;
+            position: absolute;
+            background-color: #4a5568;
+            border-radius: 0.375rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            z-index: 1000;
+        }
+        .context-menu-item {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+        }
+        .context-menu-item:hover {
+            background-color: #718096;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- Header -->
+    <header class="bg-gray-900 text-white p-4 shadow-lg flex justify-between items-center">
+        <h1 class="text-2xl font-bold tracking-wider">
+            <i class="fas fa-project-diagram mr-2"></i>Cisco Network Topology Visualizer
+        </h1>
+        <div>
+            <a href="https://github.com/your-username/cisco-topology-visualizer" target="_blank" class="text-gray-400 hover:text-white transition">
+                <i class="fab fa-github fa-2x"></i>
+            </a>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex flex-grow overflow-hidden">
+        <!-- Toolbar -->
+        <aside id="toolbar" class="w-48 p-4 space-y-6">
+            <h2 class="text-lg font-semibold border-b border-gray-600 pb-2">Devices</h2>
+            <div class="space-y-4">
+                <div id="drag-router" class="toolbar-item p-4 bg-gray-700 rounded-lg text-center" draggable="true" data-type="router">
+                    <i class="fas fa-server fa-3x text-blue-400"></i>
+                    <p class="mt-2 font-medium">Router</p>
+                </div>
+                <div id="drag-switch" class="toolbar-item p-4 bg-gray-700 rounded-lg text-center" draggable="true" data-type="switch">
+                    <i class="fas fa-network-wired fa-3x text-green-400"></i>
+                    <p class="mt-2 font-medium">Switch</p>
+                </div>
+                 <div id="drag-pc" class="toolbar-item p-4 bg-gray-700 rounded-lg text-center" draggable="true" data-type="pc">
+                    <i class="fas fa-desktop fa-3x text-purple-400"></i>
+                    <p class="mt-2 font-medium">PC</p>
+                </div>
+            </div>
+             <h2 class="text-lg font-semibold border-b border-gray-600 pb-2 pt-4">Actions</h2>
+             <button id="connect-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded transition">
+                <i class="fas fa-link mr-2"></i>Connect
+             </button>
+             <button id="delete-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded transition mt-2">
+                <i class="fas fa-trash mr-2"></i>Delete Selected
+             </button>
+        </aside>
+
+        <!-- Canvas Area -->
+        <main class="flex-grow p-4 relative">
+            <div id="topology-canvas">
+                <svg id="svg-canvas" width="100%" height="100%"></svg>
+            </div>
+            <div id="context-menu" class="context-menu">
+                <div class="context-menu-item" id="ctx-info">View Info</div>
+                <div class="context-menu-item" id="ctx-delete">Delete Device</div>
+            </div>
+        </main>
+
+        <!-- Info Panel -->
+        <aside id="info-panel" class="w-72 p-4">
+            <h2 class="text-lg font-semibold border-b border-gray-600 pb-2">Information</h2>
+            <div id="info-content" class="mt-4">
+                <p class="text-gray-400">Select a device or link to see details.</p>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Element References ---
+            const canvas = document.getElementById('topology-canvas');
+            const svgElement = document.getElementById('svg-canvas');
+            const infoContent = document.getElementById('info-content');
+            const connectBtn = document.getElementById('connect-btn');
+            const deleteBtn = document.getElementById('delete-btn');
+            const contextMenu = document.getElementById('context-menu');
+            const ctxDelete = document.getElementById('ctx-delete');
+            const ctxInfo = document.getElementById('ctx-info');
+
+            // --- D3 Setup ---
+            const svg = d3.select(svgElement);
+            let width = svgElement.clientWidth;
+            let height = svgElement.clientHeight;
+
+            // --- Data Store ---
+            let nodes = [];
+            let links = [];
+            let nodeIdCounter = 0;
+            let selectedNodes = [];
+            let selectedLink = null;
+            let contextNode = null;
+
+            // --- D3 Simulation ---
+            const simulation = d3.forceSimulation(nodes)
+                .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+                .force("charge", d3.forceManyBody().strength(-300))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .on("tick", ticked);
+
+            let linkGroup = svg.append("g").attr("class", "links");
+            let nodeGroup = svg.append("g").attr("class", "nodes");
+
+            // --- Core Functions ---
+            
+            /**
+             * Updates the SVG representation based on the simulation's current state.
+             */
+            function ticked() {
+                linkGroup.selectAll(".link")
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                nodeGroup.selectAll(".node")
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+            }
+
+            /**
+             * Re-renders the entire visualization. Call this after data changes.
+             */
+            function update() {
+                // Nodes
+                const nodeSelection = nodeGroup.selectAll(".node")
+                    .data(nodes, d => d.id)
+                    .join(
+                        enter => {
+                            const g = enter.append("g")
+                                .attr("class", "node")
+                                .call(d3.drag()
+                                    .on("start", dragstarted)
+                                    .on("drag", dragged)
+                                    .on("end", dragended));
+
+                            g.append("circle")
+                                .attr("r", 30)
+                                .attr("fill", "#2d3748")
+                                .attr("stroke", d => getNodeColor(d.type))
+                                .attr("stroke-width", 3);
+                                
+                            g.append("text")
+                                .attr("class", "icon")
+                                .attr("text-anchor", "middle")
+                                .attr("dominant-baseline", "central")
+                                .attr("font-family", "FontAwesome")
+                                .attr('font-size', '24px')
+                                .attr("fill", d => getNodeColor(d.type))
+                                .text(d => getNodeIcon(d.type));
+
+                            g.append("text")
+                                .attr("class", "label")
+                                .attr("y", 45)
+                                .attr("text-anchor", "middle")
+                                .attr("fill", "#e2e8f0")
+                                .text(d => d.name);
+
+                            g.on('click', nodeClicked);
+                            g.on('contextmenu', nodeRightClicked);
+                            
+                            return g;
+                        }
+                    );
+                
+                // Update labels if names change
+                nodeSelection.select(".label").text(d => d.name);
+                 nodeSelection.select("circle")
+                    .attr("stroke", d => {
+                        return selectedNodes.includes(d.id) ? '#63b3ed' : getNodeColor(d.type);
+                    })
+                    .attr("stroke-width", d => selectedNodes.includes(d.id) ? 4 : 3);
+
+
+                // Links
+                linkGroup.selectAll(".link")
+                    .data(links)
+                    .join("line")
+                    .attr("class", "link")
+                    .on('click', linkClicked)
+                    .attr("stroke", d => selectedLink === d ? '#68d391' : '#a0aec0');
+
+                // Restart simulation with new data
+                simulation.nodes(nodes);
+                simulation.force("link").links(links);
+                simulation.alpha(1).restart();
+            }
+
+            /**
+             * Handles clicking on a node.
+             */
+            function nodeClicked(event, d) {
+                event.stopPropagation();
+                if (connectBtn.classList.contains('active')) {
+                     if (selectedNodes.length > 0 && selectedNodes[0] !== d.id) {
+                        // Complete the connection
+                        selectedNodes.push(d.id);
+                        createLink(selectedNodes[0], selectedNodes[1]);
+                        selectedNodes = [];
+                        connectBtn.classList.remove('active', 'bg-yellow-500');
+                        connectBtn.innerHTML = '<i class="fas fa-link mr-2"></i>Connect';
+                    } else if (selectedNodes.length === 0) {
+                        // Start the connection
+                        selectedNodes.push(d.id);
+                    }
+                } else {
+                    // Regular selection
+                    selectedNodes = [d.id];
+                    selectedLink = null;
+                }
+                update();
+                updateInfoPanel();
+            }
+             /**
+             * Handles clicking on a link.
+             */
+            function linkClicked(event, d) {
+                event.stopPropagation();
+                selectedLink = d;
+                selectedNodes = []; // Deselect nodes
+                update();
+                updateInfoPanel();
+            }
+            
+            /**
+             * Handles right-clicking on a node to show context menu.
+             */
+            function nodeRightClicked(event, d) {
+                event.preventDefault();
+                contextNode = d;
+                contextMenu.style.display = 'block';
+                contextMenu.style.left = `${event.pageX}px`;
+                contextMenu.style.top = `${event.pageY}px`;
+            }
+
+            /**
+             * Creates a new link between two nodes.
+             */
+            function createLink(sourceId, targetId) {
+                // Avoid duplicate links
+                const exists = links.some(l => (l.source.id === sourceId && l.target.id === targetId) || (l.source.id === targetId && l.target.id === sourceId));
+                if (!exists) {
+                    links.push({ source: sourceId, target: targetId });
+                    update();
+                }
+            }
+            
+            /**
+             * Adds a new device node to the topology.
+             */
+            function addNode(type, x, y) {
+                const newNode = {
+                    id: ++nodeIdCounter,
+                    name: `${type}-${nodeIdCounter}`,
+                    type: type,
+                    ip: '192.168.1.1',
+                    subnet: '255.255.255.0',
+                    interfaces: [],
+                    fx: x, // Fix initial position
+                    fy: y
+                };
+                nodes.push(newNode);
+                update();
+            }
+
+            /**
+             * Deletes the currently selected node or link.
+             */
+            function deleteSelected() {
+                if (selectedNodes.length > 0) {
+                    nodes = nodes.filter(n => !selectedNodes.includes(n.id));
+                    links = links.filter(l => !selectedNodes.includes(l.source.id) && !selectedNodes.includes(l.target.id));
+                    selectedNodes = [];
+                } else if (selectedLink) {
+                    links = links.filter(l => l !== selectedLink);
+                    selectedLink = null;
+                }
+                update();
+                updateInfoPanel();
+            }
+
+            /**
+             * Updates the information panel with details of the selected item.
+             */
+            function updateInfoPanel() {
+                let content = '<p class="text-gray-400">Select an item.</p>';
+                if (selectedNodes.length > 0) {
+                    const node = nodes.find(n => n.id === selectedNodes[0]);
+                    if (node) {
+                        content = `
+                            <div class="space-y-2">
+                                <h3 class="text-lg font-bold">${node.name}</h3>
+                                <p><strong>Type:</strong> <span class="capitalize">${node.type}</span></p>
+                                <div>
+                                    <label for="node-name" class="block text-sm font-medium">Name:</label>
+                                    <input type="text" id="node-name" value="${node.name}" class="mt-1 block w-full bg-gray-600 border border-gray-500 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                </div>
+                                <div>
+                                    <label for="node-ip" class="block text-sm font-medium">IP Address:</label>
+                                    <input type="text" id="node-ip" value="${node.ip}" class="mt-1 block w-full bg-gray-600 border border-gray-500 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                </div>
+                            </div>
+                        `;
+                    }
+                } else if(selectedLink) {
+                    content = `
+                        <h3 class="text-lg font-bold">Link</h3>
+                        <p><strong>Source:</strong> ${selectedLink.source.name}</p>
+                        <p><strong>Target:</strong> ${selectedLink.target.name}</p>
+                        <p><strong>Status:</strong> <span class="text-green-400">Active</span></p>
+                    `;
+                }
+                infoContent.innerHTML = content;
+
+                // Add event listeners for the input fields
+                const nodeNameInput = document.getElementById('node-name');
+                if (nodeNameInput) {
+                    nodeNameInput.addEventListener('change', (e) => {
+                         const node = nodes.find(n => n.id === selectedNodes[0]);
+                         if(node) {
+                             node.name = e.target.value;
+                             update();
+                         }
+                    });
+                }
+                 const nodeIpInput = document.getElementById('node-ip');
+                if (nodeIpInput) {
+                    nodeIpInput.addEventListener('change', (e) => {
+                         const node = nodes.find(n => n.id === selectedNodes[0]);
+                         if(node) {
+                             node.ip = e.target.value;
+                         }
+                    });
+                }
+            }
+
+
+            // --- Helper Functions ---
+            
+            function getNodeIcon(type) {
+                switch (type) {
+                    case 'router': return '\uf233'; // fa-server
+                    case 'switch': return '\uf6ff'; // fa-network-wired
+                    case 'pc': return '\uf108'; // fa-desktop
+                    default: return '\uf108';
+                }
+            }
+
+            function getNodeColor(type) {
+                switch (type) {
+                    case 'router': return '#63b3ed'; // Blue
+                    case 'switch': return '#68d391'; // Green
+                    case 'pc': return '#a78bfa'; // Purple
+                    default: return '#90cdf4';
+                }
+            }
+
+
+            // --- Drag and Drop Logic ---
+            
+            document.querySelectorAll('.toolbar-item').forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', e.target.dataset.type);
+                });
+            });
+
+            canvas.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+
+            canvas.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const type = e.dataTransfer.getData('text/plain');
+                const canvasRect = canvas.getBoundingClientRect();
+                const x = e.clientX - canvasRect.left;
+                const y = e.clientY - canvasRect.top;
+                addNode(type, x, y);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                // Keep the position fixed after dragging
+                // d.fx = d.x;
+                // d.fy = d.y;
+            }
+
+
+            // --- Event Listeners ---
+            
+            connectBtn.addEventListener('click', () => {
+                connectBtn.classList.toggle('active');
+                if (connectBtn.classList.contains('active')) {
+                    connectBtn.classList.add('bg-yellow-500');
+                    connectBtn.innerHTML = 'Cancel Connection';
+                    selectedNodes = []; // Clear selection to start fresh
+                } else {
+                    connectBtn.classList.remove('bg-yellow-500');
+                    connectBtn.innerHTML = '<i class="fas fa-link mr-2"></i>Connect';
+                    selectedNodes = [];
+                }
+                update();
+            });
+
+            deleteBtn.addEventListener('click', deleteSelected);
+
+            window.addEventListener('resize', () => {
+                width = svgElement.clientWidth;
+                height = svgElement.clientHeight;
+                svg.attr('width', width).attr('height', height);
+                simulation.force("center", d3.forceCenter(width / 2, height / 2)).restart();
+            });
+
+            // Hide context menu on global click
+            document.addEventListener('click', () => {
+                contextMenu.style.display = 'none';
+                contextNode = null;
+            });
+            
+             ctxDelete.addEventListener('click', () => {
+                if (contextNode) {
+                    selectedNodes = [contextNode.id];
+                    deleteSelected();
+                    contextNode = null;
+                }
+            });
+
+            ctxInfo.addEventListener('click', () => {
+                if (contextNode) {
+                    selectedNodes = [contextNode.id];
+                    selectedLink = null;
+                    update();
+                    updateInfoPanel();
+                    contextNode = null;
+                }
+            });
+
+            // Initial render
+            update();
+        });
+    </script>
+</body>
+</html>
